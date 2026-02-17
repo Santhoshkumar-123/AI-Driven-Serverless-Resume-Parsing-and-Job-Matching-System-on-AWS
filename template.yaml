@@ -1,0 +1,118 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: CloudAI Hire - AI Driven Serverless Resume Parsing & Job Matching System
+
+Globals:
+  Function:
+    Runtime: python3.10
+    MemorySize: 128
+    Timeout: 10
+    Architectures:
+      - x86_64
+
+Resources:
+
+# =========================
+# 1️⃣ Upload Resume API
+# =========================
+  UploadResumeFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: functions/upload_resume/
+      Handler: lambda_function.lambda_handler
+      Timeout: 30
+      Policies:
+        - AmazonS3FullAccess
+        - AmazonDynamoDBFullAccess
+        - AmazonSQSFullAccess
+        - AmazonTextractFullAccess
+      Events:
+        UploadApi:
+          Type: Api
+          Properties:
+            Path: /upload
+            Method: POST
+
+# =========================
+# 2️⃣ Dashboard API
+# =========================
+  DashboardFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: functions/dashboard/
+      Handler: lambda_function.lambda_handler
+      Policies:
+        - AmazonDynamoDBFullAccess
+      Events:
+        DashboardApi:
+          Type: Api
+          Properties:
+            Path: /dashboard-data
+            Method: ANY
+
+# =========================
+# 3️⃣ Job Matcher
+# =========================
+  JobMatcherFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: functions/job_matcher/
+      Handler: lambda_function.lambda_handler
+      Policies:
+        - AmazonDynamoDBFullAccess
+
+# =========================
+# 4️⃣ NLP Parser (S3 Trigger)
+# =========================
+  NLPParserFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: functions/nlp_parser/
+      Handler: lambda_function.lambda_handler
+      Policies:
+        - AmazonS3FullAccess
+        - AmazonTextractFullAccess
+        - AmazonDynamoDBFullAccess
+        - AmazonSQSFullAccess
+      Events:
+        ResumeUploadEvent:
+          Type: S3
+          Properties:
+            Bucket: !Ref ResumeBucket
+            Events: s3:ObjectCreated:*
+
+# =========================
+# 5️⃣ Textract Worker (SQS Trigger)
+# =========================
+  TextractWorkerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: functions/textract_worker/
+      Handler: lambda_function.lambda_handler
+      Policies:
+        - AmazonSQSFullAccess
+        - AmazonS3FullAccess
+        - AmazonTextractFullAccess
+      Events:
+        SQSEvent:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt ResumeProcessingQueue.Arn
+            BatchSize: 10
+
+# =========================
+# 6️⃣ S3 Bucket
+# =========================
+  ResumeBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      VersioningConfiguration:
+        Status: Enabled
+
+# =========================
+# 7️⃣ SQS Queue
+# =========================
+  ResumeProcessingQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: resume-processing-queue
